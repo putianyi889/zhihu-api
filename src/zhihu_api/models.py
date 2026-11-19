@@ -71,12 +71,20 @@ class ArticleInfo:
     column: Optional[ColumnInfo] = None
     created: Optional[int] = None
     updated: Optional[int] = None
+    time_text: Optional[str] = None
+    time_kind: Optional[str] = None
+    source: str = "direct"
     raw: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def published_at(self) -> Optional[datetime]:
         """Article publication time as a timezone-aware UTC datetime."""
         return _to_datetime(self.created)
+
+    @property
+    def updated_at(self) -> Optional[datetime]:
+        """Last-modified time as a timezone-aware UTC datetime."""
+        return _to_datetime(self.updated)
 
     @property
     def column_title(self) -> Optional[str]:
@@ -99,8 +107,12 @@ class ArticleInfo:
             "column_title": self.column_title,
             "author": self.column_author.as_dict(),
             "published_at": _to_isoformat(self.published_at),
+            "updated_at": _to_isoformat(self.updated_at),
             "created": self.created,
             "updated": self.updated,
+            "time_text": self.time_text,
+            "time_kind": self.time_kind,
+            "source": self.source,
             "column": self.column.as_dict() if self.column else None,
         }
 

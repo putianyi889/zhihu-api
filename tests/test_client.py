@@ -44,6 +44,77 @@ ARTICLE_PAYLOAD = {
     },
 }
 
+READER_ARTICLE_MARKDOWN = """\
+我这两年收藏的目标检测好文分享
+
+首发于[遥感目标检测](//www.zhihu.com/column/c_1222921270964506624)
+
+# 我这两年收藏的目标检测好文分享
+
+[![Image](https://picx.zhimg.com/avatar_l.jpg)](javascript:void(0))
+
+[跑者小越](//www.zhihu.com/people/pao-zhe-xiao-yue)
+
+OpenMMLab
+
+710 人赞同了该文章
+"""
+
+READER_COLUMN_MARKDOWN = """\
+遥感目标检测
+
+#### 专栏作者
+
+[![Image](https://picx.zhimg.com/avatar_l.jpg)](javascript:void(0))
+
+[跑者小越](//www.zhihu.com/people/pao-zhe-xiao-yue)
+
+OpenMMLab
+"""
+
+
+READER_INITIAL_DATA = {
+    "initialState": {
+        "entities": {
+            "articles": {
+                ARTICLE_ID: {
+                    "id": ARTICLE_ID,
+                    "title": "我这两年收藏的目标检测好文分享",
+                    "created": 1589356214,
+                    "updated": 1592187916,
+                    "author": {
+                        "id": "author-id",
+                        "urlToken": "pao-zhe-xiao-yue",
+                        "name": "跑者小越",
+                    },
+                    "column": {
+                        "id": "c_1222921270964506624",
+                        "urlToken": "c_1222921270964506624",
+                        "title": "遥感目标检测",
+                        "created": 1584347151,
+                        "author": {
+                            "id": "column-author-id",
+                            "urlToken": "pao-zhe-xiao-yue",
+                            "name": "跑者小越",
+                        },
+                    },
+                }
+            }
+        }
+    }
+}
+
+
+def reader_envelope(content, title=None):
+    data = {"content": content}
+    if title:
+        data["title"] = title
+    return {"code": 200, "status": 20000, "data": data}
+
+
+def reader_text_envelope(text):
+    return {"code": 200, "status": 20000, "data": {"text": text}}
+
 
 class FakeResponse:
     def __init__(self, payload, status=200):
@@ -75,9 +146,9 @@ class FakeOpener:
 
 
 class ZhihuClientTests(unittest.TestCase):
-    def make_client(self, responses):
+    def make_client(self, responses, source="direct"):
         opener = FakeOpener(responses)
-        client = ZhihuClient(opener=opener, retries=0)
+        client = ZhihuClient(source=source, opener=opener, retries=0)
         return client, opener
 
     def test_get_user_id_from_url_token_and_profile_url(self):
@@ -98,6 +169,13 @@ class ZhihuClientTests(unittest.TestCase):
         self.assertEqual(client.get_url_token(USER_ID), URL_TOKEN)
         self.assertIn("/api/v4/members/" + USER_ID, opener.requests[0])
 
+    def test_reader_can_resolve_user(self):
+        envelope = reader_envelope(json.dumps(MEMBER_PAYLOAD, ensure_ascii=False))
+        client, opener = self.make_client([(envelope, 200)], source="reader")
+
+        self.assertEqual(client.get_user_id(URL_TOKEN), USER_ID)
+        self.assertIn("r.jina.ai/http://www.zhihu.com/api/v4/members/", opener.requests[0])
+
     def test_get_article_from_id_and_url(self):
         client, opener = self.make_client([(ARTICLE_PAYLOAD, 200)] * 2)
 
@@ -113,6 +191,77 @@ class ZhihuClientTests(unittest.TestCase):
         from_url = client.get_article(f"https://zhuanlan.zhihu.com/p/{ARTICLE_ID}")
         self.assertEqual(from_url.id, ARTICLE_ID)
         self.assertIn("include=created,updated,title,author,url,column", opener.requests[0])
+
+    def test_reader_parses_initial_data_with_exact_times_and_ids(self):
+        responses = [(reader_text_envelope(json.dumps(READER_INITIAL_DATA)), 200)]
+        client, opener = self.make_client(responses, source="reader")
+
+        info = client.get_article(ARTICLE_ID)
+        self.assertEqual(info.title, "我这两年收藏的目标检测好文分享")
+        self.assertEqual(info.author_name, "跑者小越")
+        self.assertEqual(info.author.id, "author-id")
+        self.assertEqual(info.author.url_token, "pao-zhe-xiao-yue")
+        self.assertEqual(info.column_title, "遥感目标检测")
+        self.assertEqual(info.column.id, "c_1222921270964506624")
+        self.assertEqual(info.column_author.id, "column-author-id")
+        self.assertEqual(info.created, 1589356214)
+        self.assertEqual(info.updated, 1592187916)
+        self.assertEqual(info.time_kind, "发布于")
+        self.assertEqual(
+            info.published_at, datetime.fromtimestamp(1589356214, tz=timezone.utc)
+        )
+        self.assertEqual(
+            info.updated_at, datetime.fromtimestamp(1592187916, tz=timezone.utc)
+        )
+        self.assertEqual(info.column.created, 1584347151)
+        self.assertEqual(len(opener.requests), 1)
+
+    def test_reader_falls_back_to_markdown_when_initial_data_missing(self):
+        responses = [
+            ({"code": 422, "message": "No content for selector"}, 200),
+            (reader_envelope(READER_ARTICLE_MARKDOWN, "我这两年收藏的目标检测好文分享"), 200),
+            (reader_envelope("编辑于 2020-06-15 02:25"), 200),
+            (reader_envelope(READER_COLUMN_MARKDOWN, "遥感目标检测"), 200),
+        ]
+        client, opener = self.make_client(responses, source="reader")
+
+        info = client.get_article(ARTICLE_ID)
+        self.assertEqual(info.title, "我这两年收藏的目标检测好文分享")
+        self.assertEqual(info.author_name, "跑者小越")
+        self.assertEqual(info.column_title, "遥感目标检测")
+        self.assertEqual(info.time_kind, "编辑于")
+        self.assertEqual(
+            info.updated_at,
+            datetime(2020, 6, 14, 18, 25, tzinfo=timezone.utc),
+        )
+        self.assertIsNone(info.published_at)
+        self.assertEqual(len(opener.requests), 4)
+
+    def test_reader_parses_published_time_from_initial_data(self):
+        article_id = "2012576370706884113"
+        published_ts = int(datetime(2026, 3, 6, 1, 59, tzinfo=timezone.utc).timestamp())
+        state = {
+            "initialState": {
+                "entities": {
+                    "articles": {
+                        article_id: {
+                            "id": article_id,
+                            "title": "新文章",
+                            "created": published_ts,
+                            "author": {"urlToken": "author-token", "name": "作者"},
+                        }
+                    }
+                }
+            }
+        }
+        client, _ = self.make_client(
+            [(reader_text_envelope(json.dumps(state)), 200)], source="reader"
+        )
+
+        info = client.get_article(article_id)
+        self.assertIsNone(info.column_title)
+        self.assertEqual(info.time_kind, "发布于")
+        self.assertEqual(info.published_at, datetime.fromtimestamp(published_ts, tz=timezone.utc))
 
     def test_article_without_column_falls_back_to_article_author(self):
         payload = dict(ARTICLE_PAYLOAD)

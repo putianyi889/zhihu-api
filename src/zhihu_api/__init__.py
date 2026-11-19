@@ -9,11 +9,12 @@ from .errors import (
     ZhihuError,
     ZhihuNotFoundError,
     ZhihuRateLimitError,
+    ZhihuReaderError,
     ZhihuResponseError,
 )
 from .models import ArticleInfo, ColumnInfo, UserIdentity, UserRef
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "ArticleInfo",
@@ -26,6 +27,7 @@ __all__ = [
     "ZhihuError",
     "ZhihuNotFoundError",
     "ZhihuRateLimitError",
+    "ZhihuReaderError",
     "ZhihuResponseError",
     "extract_article_id",
     "extract_member_identifier",

@@ -3,7 +3,7 @@ import json
 import sys
 from typing import Optional, Sequence
 
-from .client import DEFAULT_BASE_URL, ZhihuClient
+from .client import DEFAULT_BASE_URL, SOURCE_DIRECT, SOURCE_READER, ZhihuClient
 from .errors import ZhihuError
 
 
@@ -12,8 +12,18 @@ def build_parser() -> argparse.ArgumentParser:
         prog="zhihu-api",
         description="Query public Zhihu user and column article data.",
     )
-    parser.add_argument("--cookie", help="Optional Zhihu cookie, e.g. 'z_c0=...'")
-    parser.add_argument("--timeout", type=float, default=10.0, help="Request timeout")
+    parser.add_argument(
+        "--source",
+        choices=(SOURCE_READER, SOURCE_DIRECT),
+        default=SOURCE_READER,
+        help="Data source (default: public reader proxy)",
+    )
+    parser.add_argument("--cookie", help="Optional Zhihu cookie for direct source")
+    parser.add_argument(
+        "--reader-api-key",
+        help="Optional Jina API key (defaults to JINA_API_KEY env var)",
+    )
+    parser.add_argument("--timeout", type=float, default=15.0, help="Request timeout")
     parser.add_argument(
         "--base-url", default=DEFAULT_BASE_URL, help=argparse.SUPPRESS
     )
@@ -35,9 +45,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     client = ZhihuClient(
+        source=args.source,
         base_url=args.base_url,
         timeout=args.timeout,
         cookie=args.cookie,
+        reader_api_key=args.reader_api_key,
     )
 
     try:
