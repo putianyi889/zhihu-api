@@ -3,7 +3,13 @@ import json
 import sys
 from typing import Optional, Sequence
 
-from .client import DEFAULT_BASE_URL, SOURCE_DIRECT, SOURCE_READER, ZhihuClient
+from .client import (
+    DEFAULT_BASE_URL,
+    DEFAULT_READER_MIN_INTERVAL,
+    SOURCE_DIRECT,
+    SOURCE_READER,
+    ZhihuClient,
+)
 from .errors import ZhihuError
 
 
@@ -22,6 +28,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--reader-api-key",
         help="Optional Jina API key (defaults to JINA_API_KEY env var)",
+    )
+    parser.add_argument(
+        "--reader-min-interval",
+        type=float,
+        default=DEFAULT_READER_MIN_INTERVAL,
+        help="Minimum seconds between reader requests (0 disables)",
     )
     parser.add_argument("--timeout", type=float, default=15.0, help="Request timeout")
     parser.add_argument(
@@ -50,6 +62,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         timeout=args.timeout,
         cookie=args.cookie,
         reader_api_key=args.reader_api_key,
+        reader_min_interval=args.reader_min_interval,
     )
 
     try:

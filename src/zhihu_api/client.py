@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from http.cookiejar import CookieJar
@@ -29,6 +30,7 @@ DEFAULT_USER_AGENT = (
 )
 SOURCE_READER = "reader"
 SOURCE_DIRECT = "direct"
+DEFAULT_READER_MIN_INTERVAL = 3.0
 MEMBER_INCLUDE = "id,url_token,name"
 ARTICLE_INCLUDE = "created,updated,title,author,url,column"
 
@@ -67,6 +69,7 @@ class ZhihuClient:
         base_url: str = DEFAULT_BASE_URL,
         reader_base_url: str = DEFAULT_READER_BASE_URL,
         reader_api_key: Optional[str] = None,
+        reader_min_interval: float = DEFAULT_READER_MIN_INTERVAL,
         timeout: float = 15.0,
         cookie: Optional[str] = None,
         user_agent: str = DEFAULT_USER_AGENT,
@@ -79,6 +82,9 @@ class ZhihuClient:
         self.base_url = base_url.rstrip("/")
         self.reader_base_url = reader_base_url.rstrip("/")
         self.reader_api_key = reader_api_key or os.environ.get("JINA_API_KEY")
+        self.reader_min_interval = max(0.0, reader_min_interval)
+        self._reader_lock = threading.Lock()
+        self._next_reader_at = 0.0
         self.timeout = timeout
         self.cookie = cookie
         self.user_agent = user_agent
@@ -262,6 +268,17 @@ class ZhihuClient:
             raise _api_error_from_payload(payload, 400, target_url)
         return payload
 
+    def _wait_for_reader_slot(self) -> None:
+        interval = self.reader_min_interval
+        if interval <= 0:
+            return
+        with self._reader_lock:
+            now = time.monotonic()
+            wait = max(0.0, self._next_reader_at - now)
+            self._next_reader_at = max(now, self._next_reader_at) + interval
+        if wait:
+            time.sleep(wait)
+
     def _reader_json(
         self,
         target_url: str,
@@ -279,7 +296,13 @@ class ZhihuClient:
         if self.reader_api_key:
             headers["Authorization"] = "Bearer " + self.reader_api_key
 
-        body, status = self._request(url, headers)
+        for attempt in range(self.retries + 1):
+            self._wait_for_reader_slot()
+            body, status = self._request_once(url, headers)
+            if status in (429, 503) and attempt < self.retries:
+                time.sleep(0.5 * (2**attempt))
+                continue
+            break
         payload = _parse_json(body, url)
         if not isinstance(payload, dict):
             raise ZhihuReaderError(f"Reader returned non-object JSON from {url!r}", url=url)
@@ -328,26 +351,29 @@ class ZhihuClient:
             headers["Cookie"] = self.cookie
         return headers
 
+    def _request_once(self, url: str, headers: Dict[str, str]) -> Tuple[bytes, int]:
+        request = Request(url, headers=headers)
+        try:
+            with self._opener.open(request, timeout=self.timeout) as response:
+                body = response.read()
+                status = getattr(response, "status", None) or getattr(
+                    response, "code", 200
+                )
+        except HTTPError as exc:
+            body = exc.read() if hasattr(exc, "read") else b""
+            return body, exc.code
+        except URLError as exc:
+            raise ZhihuConnectionError(
+                f"Failed to connect: {exc.reason}", url=url
+            ) from exc
+        return body, status
+
     def _request(self, url: str, headers: Dict[str, str]) -> Tuple[bytes, int]:
         for attempt in range(self.retries + 1):
-            request = Request(url, headers=headers)
-            try:
-                with self._opener.open(request, timeout=self.timeout) as response:
-                    body = response.read()
-                    status = getattr(response, "status", None) or getattr(
-                        response, "code", 200
-                    )
-            except HTTPError as exc:
-                body = exc.read() if hasattr(exc, "read") else b""
-                status = exc.code
-                if status in (429, 503) and attempt < self.retries:
-                    time.sleep(0.5 * (2**attempt))
-                    continue
-                return body, status
-            except URLError as exc:
-                raise ZhihuConnectionError(
-                    f"Failed to connect: {exc.reason}", url=url
-                ) from exc
+            body, status = self._request_once(url, headers)
+            if status in (429, 503) and attempt < self.retries:
+                time.sleep(0.5 * (2**attempt))
+                continue
             return body, status
 
         raise ZhihuConnectionError(f"Request retries exhausted for {url!r}", url=url)

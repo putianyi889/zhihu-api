@@ -2,6 +2,7 @@ import io
 import json
 import unittest
 from datetime import datetime, timezone
+from unittest.mock import patch
 from urllib.error import HTTPError
 
 from zhihu_api import (
@@ -148,7 +149,9 @@ class FakeOpener:
 class ZhihuClientTests(unittest.TestCase):
     def make_client(self, responses, source="direct"):
         opener = FakeOpener(responses)
-        client = ZhihuClient(source=source, opener=opener, retries=0)
+        client = ZhihuClient(
+            source=source, opener=opener, retries=0, reader_min_interval=0.0
+        )
         return client, opener
 
     def test_get_user_id_from_url_token_and_profile_url(self):
@@ -175,6 +178,24 @@ class ZhihuClientTests(unittest.TestCase):
 
         self.assertEqual(client.get_user_id(URL_TOKEN), USER_ID)
         self.assertIn("r.jina.ai/http://www.zhihu.com/api/v4/members/", opener.requests[0])
+
+    def test_reader_requests_are_throttled(self):
+        self.assertEqual(ZhihuClient().reader_min_interval, 3.0)
+        envelope = reader_envelope(json.dumps(MEMBER_PAYLOAD, ensure_ascii=False))
+        opener = FakeOpener([(envelope, 200)] * 2)
+        client = ZhihuClient(
+            source="reader",
+            opener=opener,
+            retries=0,
+            reader_min_interval=3.0,
+        )
+
+        with patch("zhihu_api.client.time.monotonic", side_effect=[0.0, 1.0]):
+            with patch("zhihu_api.client.time.sleep") as mock_sleep:
+                client.get_user_id(URL_TOKEN)
+                client.get_user_id(URL_TOKEN)
+
+        mock_sleep.assert_called_once_with(2.0)
 
     def test_get_article_from_id_and_url(self):
         client, opener = self.make_client([(ARTICLE_PAYLOAD, 200)] * 2)

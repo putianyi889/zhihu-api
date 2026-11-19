@@ -12,7 +12,7 @@
 ## 安装
 
 ```bash
-pip install git+https://github.com/putianyi889/zhihu-api.git@v0.2.0
+pip install git+https://github.com/putianyi889/zhihu-api.git@v0.2.1
 ```
 
 仅依赖 Python 标准库，支持 Python 3.9+。
@@ -23,6 +23,7 @@ pip install git+https://github.com/putianyi889/zhihu-api.git@v0.2.0
 
 - 用户标识：通过 `r.jina.ai` 读取 `/api/v4/members/{id_or_url_token}?include=id,url_token,name`
 - 文章元数据：读取渲染后的 `zhuanlan.zhihu.com/p/{id}` 页面，优先解析内嵌 `js-initialData` JSON，拿到精确的 `created` / `updated`、作者 ID、专栏与专栏作者；内嵌数据不可用时回退到页面文本解析
+- 主动限流：Reader 请求默认每 3 秒一次（对应匿名 20 RPM），重试也计入间隔；可用 `reader_min_interval` 调整，设为 `0` 可关闭
 
 也可用 `source="direct"` 直连知乎接口。若本机网络未被拦截，直连模式能拿到接口中的精确 `created` 时间戳；可配合浏览器 Cookie 使用。
 
@@ -93,7 +94,7 @@ zhihu-api article 140036646
 zhihu-api --source direct article 140036646
 ```
 
-`article` 命令输出 JSON，包含 `title`、`column_title`、`author`、`time_text`、`published_at`、`updated_at` 等字段。全局选项支持 `--source`、`--cookie`、`--reader-api-key`、`--timeout`。
+`article` 命令输出 JSON，包含 `title`、`column_title`、`author`、`time_text`、`published_at`、`updated_at` 等字段。全局选项支持 `--source`、`--cookie`、`--reader-api-key`、`--reader-min-interval`、`--timeout`。
 
 ## 时间字段说明
 
